@@ -140,7 +140,7 @@ void Read_n(
    int local_ok = 1;
    char *fname = "Read_n";
 
-   *n_p = 100000;
+   *n_p = 150000;
 
    MPI_Bcast(n_p, 1, MPI_INT, 0, comm);
    if (*n_p <= 0 || *n_p % comm_sz != 0) local_ok = 0;
