@@ -69,6 +69,7 @@ int main(void) {
     end = MPI_Wtime();
 
     Print_dot_product(sub_result, rank, comm);
+    Print_scalar_result(local_a, local_z, elements_per_process, n, rank, comm);
 
 
     if (rank == 0){
@@ -245,7 +246,7 @@ void Print_dot_product(double sub_result, int rank, MPI_Comm comm) {
     if (rank == 0) {
         Check_for_error(local_ok, fname, "Can't allocate temporary vector", comm);
         MPI_Reduce(&sub_result, &result, 1, MPI_DOUBLE, MPI_SUM, 0,comm);
-        printf("The dot product is: %f", result);
+        printf("The dot product is: %f\n", result);
 
     } else {
         Check_for_error(local_ok, fname, "Can't allocate temporary vector", comm);
@@ -270,15 +271,15 @@ void Print_scalar_result(double local_a[], double local_b[], int local_n, int n,
         Check_for_error(local_ok, fname, "Can't allocate temporary vector", comm);
 
         MPI_Gather(local_a, local_n, MPI_DOUBLE, b, local_n, MPI_DOUBLE,0, comm);
-        MPI_Gather(local_b, local_n, MPI_DOUBLE, b, local_n, MPI_DOUBLE,0, comm);
+        MPI_Gather(local_b, local_n, MPI_DOUBLE, a, local_n, MPI_DOUBLE,0, comm);
 
         printf("Scalar product of first vector\n");
         for (i = 0; i < n; i++) {
             printf("%f ", b[i]);
             printf("\n");
         }
+
         printf("Scalar product of second vector\n");
-        printf("\n");
         for (i = 0; i < n; i++){
             printf("%f ", a[i]);
             printf("\n");
@@ -289,7 +290,7 @@ void Print_scalar_result(double local_a[], double local_b[], int local_n, int n,
     } else {
         Check_for_error(local_ok, fname, "Can't allocate temporary vector", comm);
         MPI_Gather(local_a, local_n, MPI_DOUBLE, b, local_n, MPI_DOUBLE, 0, comm);
-        MPI_Gather(local_b, local_n, MPI_DOUBLE, b, local_n, MPI_DOUBLE, 0, comm);
+        MPI_Gather(local_b, local_n, MPI_DOUBLE, a, local_n, MPI_DOUBLE, 0, comm);
     }
 }  /* Print_vector */
 
