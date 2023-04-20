@@ -28,23 +28,25 @@
 
 void Check_for_error(int local_ok, char fname[], char message[], MPI_Comm comm);
 
-void Read_n(int *n, int *elements_per_process_p, int rank, int comm_sz, MPI_Comm comm);
+void Read_n(int *n, int *scalar, int *elements_per_process_p, int rank, int comm_sz, MPI_Comm comm);
 
-void Allocate_vectors(double **local_x_pp, double **local_y_pp, double **local_z_pp, int elements_per_process,
+void Allocate_vectors(double **local_x_pp, double **local_y_pp, double **local_z_pp, double **local_a_pp, int elements_per_process,
                       MPI_Comm comm);
 
 void Read_vector(double local_a[], int elements_per_process, int n, char vec_name[], int rank, MPI_Comm comm);
 
-void Print_vector(double local_b[], int elements_per_process, int n, char title[], int rank, MPI_Comm comm);
+void Print_dot_product(double sub_result, int rank, MPI_Comm comm);
+void Print_scalar_result(double local_a[], double local_b[], int local_n, int n, int my_rank, MPI_Comm comm);
 
-void Parallel_vector_sum(double local_x[], double local_y[], double local_z[], int elements_per_process);
-
+double Parallel_vector_dot(double local_x[], double local_y[], int elements_per_process);
+void Parallel_vector_scalar(double local_x[], double local_y[], double  local_z[], double local_a[], int elements_per_process, int scalar);
 
 /*-------------------------------------------------------------------*/
 int main(void) {
 
-    int n, elements_per_process, comm_sz, rank;
-    double *local_x, *local_y, *local_z, start, end;
+    int n, scalar, elements_per_process, comm_sz, rank;
+    double *local_x, *local_y, *local_z, *local_a;
+    double sub_result, start, end;
     MPI_Comm comm;
 
     MPI_Init(NULL, NULL);
@@ -52,24 +54,31 @@ int main(void) {
     MPI_Comm_size(comm, &comm_sz);
     MPI_Comm_rank(comm, &rank);
 
-    Read_n(&n, &elements_per_process, rank, comm_sz, comm);
+    Read_n(&n, &scalar, &elements_per_process, rank, comm_sz, comm);
 
 
     start = MPI_Wtime();
 
-    Allocate_vectors(&local_x, &local_y, &local_z, elements_per_process, comm);
+    Allocate_vectors(&local_x, &local_y, &local_z, &local_a, elements_per_process, comm);
     Read_vector(local_x, elements_per_process, n, "x", rank, comm);
     Read_vector(local_y, elements_per_process, n, "y", rank, comm);
-    Parallel_vector_sum(local_x, local_y, local_z, elements_per_process);
+    sub_result = Parallel_vector_dot(local_x, local_y, elements_per_process);
+
+    Parallel_vector_scalar(local_x, local_y, local_z, local_a, elements_per_process, scalar);
 
     end = MPI_Wtime();
 
-    if (rank == 0)
+    Print_dot_product(sub_result, rank, comm);
+
+
+    if (rank == 0){
         printf("\nTook %f ms to run\n", (end - start) * 1000);
+    }
 
     free(local_x);
     free(local_y);
     free(local_z);
+    free(local_a);
 
     MPI_Finalize();
 
@@ -118,17 +127,20 @@ void Check_for_error(int local_ok, char fname[], char message[], MPI_Comm comm) 
  *
  * Errors:    n should be positive and evenly divisible by comm_sz
  */
-void Read_n(int *n, int *elements_per_process, int rank, int comm_sz, MPI_Comm comm) {
+void Read_n(int *n, int *scalar, int *elements_per_process, int rank, int comm_sz, MPI_Comm comm) {
     int local_ok = 1;
     char *fname = "Read_n";
 
     if (rank == 0) {
         printf("What's the order of the vectors?\n");
         scanf("%d", n);
+        printf("What's the value of the scalar?\n");
+        scanf("%d", scalar);
     }
 
 // broadcast
     MPI_Bcast(n, 1, MPI_INT, 0, comm);
+    MPI_Bcast(scalar, 1, MPI_INT, 0, comm);
 
     if (*n <= 0 || *n % comm_sz != 0) local_ok = 0;
     Check_for_error(local_ok, fname, "n should be > 0 and evenly divisible by comm_sz", comm);
@@ -146,15 +158,16 @@ void Read_n(int *n, int *elements_per_process, int rank, int comm_sz, MPI_Comm c
  *
  * Errors:    One or more of the calls to malloc fails
  */
-void Allocate_vectors(double **local_x_pp, double **local_y_pp, double **local_z_pp, int elements_per_process, MPI_Comm comm) {
+void Allocate_vectors(double **local_x_pp, double **local_y_pp, double **local_z_pp, double **local_a_pp, int elements_per_process, MPI_Comm comm) {
     int local_ok = 1;
     char *fname = "Allocate_vectors";
 
     *local_x_pp = malloc(elements_per_process * sizeof(double));
     *local_y_pp = malloc(elements_per_process * sizeof(double));
     *local_z_pp = malloc(elements_per_process * sizeof(double));
+    *local_a_pp = malloc(elements_per_process * sizeof(double));
 
-    if (*local_x_pp == NULL || *local_y_pp == NULL || *local_z_pp == NULL) local_ok = 0;
+    if (*local_x_pp == NULL || *local_y_pp == NULL ) local_ok = 0;
     Check_for_error(local_ok, fname, "Can't allocate local vector(s)", comm);
 }  /* Allocate_vectors */
 
@@ -193,6 +206,10 @@ void Read_vector(double local_a[], int elements_per_process, int n, char vec_nam
             a[i] = rand() % 1000;;
         }
 
+        for (i = 0; i < n; i++){
+            printf("%f \n", a[i]);
+        }
+
         MPI_Scatter(a, elements_per_process, MPI_DOUBLE, local_a, elements_per_process, MPI_DOUBLE, 0, comm);
         free(a);
 
@@ -219,29 +236,60 @@ void Read_vector(double local_a[], int elements_per_process, int n, char vec_nam
  *    Assumes order of vector is evenly divisible by the number of
  *    processes
  */
-void Print_vector(double local_b[], int elements_per_process, int n, char title[], int rank, MPI_Comm comm) {
-    double *b = NULL;
-    int i;
+void Print_dot_product(double sub_result, int rank, MPI_Comm comm) {
     int local_ok = 1;
     char *fname = "Print_vector";
+    double result = 0;
+
 
     if (rank == 0) {
-        b = malloc(n * sizeof(double));
+        Check_for_error(local_ok, fname, "Can't allocate temporary vector", comm);
+        MPI_Reduce(&sub_result, &result, 1, MPI_DOUBLE, MPI_SUM, 0,comm);
+        printf("The dot product is: %f", result);
 
+    } else {
+        Check_for_error(local_ok, fname, "Can't allocate temporary vector", comm);
+        MPI_Reduce(&sub_result, &result, 1, MPI_DOUBLE, MPI_SUM, 0,comm);
+    }
+}  /* Print_vector */
+
+
+void Print_scalar_result(double local_a[], double local_b[], int local_n, int n, int rank, MPI_Comm  comm) {
+    double* a = NULL;
+    double* b = NULL;
+    int i;
+    int local_ok = 1;
+    char* fname = "Print_vector";
+
+    if (rank == 0) {
+        a = malloc(n* sizeof(double));
+        b = malloc(n*sizeof(double));
+
+        if (a == NULL) local_ok = 0;
         if (b == NULL) local_ok = 0;
         Check_for_error(local_ok, fname, "Can't allocate temporary vector", comm);
-        MPI_Gather(local_b, elements_per_process, MPI_DOUBLE, b, elements_per_process, MPI_DOUBLE, 0, comm);
 
-        printf("%s\n", title);
+        MPI_Gather(local_a, local_n, MPI_DOUBLE, b, local_n, MPI_DOUBLE,0, comm);
+        MPI_Gather(local_b, local_n, MPI_DOUBLE, b, local_n, MPI_DOUBLE,0, comm);
 
-//        for (i = 0; i < n; i++)
-//            printf("%f ", b[i]);
-//        printf("\n");
+        printf("Scalar product of first vector\n");
+        for (i = 0; i < n; i++) {
+            printf("%f ", b[i]);
+            printf("\n");
+        }
+        printf("Scalar product of second vector\n");
+        printf("\n");
+        for (i = 0; i < n; i++){
+            printf("%f ", a[i]);
+            printf("\n");
+        }
 
+        free(a);
         free(b);
     } else {
         Check_for_error(local_ok, fname, "Can't allocate temporary vector", comm);
-        MPI_Gather(local_b, elements_per_process, MPI_DOUBLE, b, elements_per_process, MPI_DOUBLE, 0, comm);
+        MPI_Gather(local_a, local_n, MPI_DOUBLE, b, local_n, MPI_DOUBLE, 0, comm);
+        MPI_Gather(local_b, local_n, MPI_DOUBLE, b, local_n, MPI_DOUBLE, 0, comm);
     }
 }  /* Print_vector */
 
@@ -254,9 +302,20 @@ void Print_vector(double local_b[], int elements_per_process, int n, char title[
  *                      and local_z
  * Out arg:   local_z:  local storage for the sum of the two vectors
  */
-void Parallel_vector_sum(double local_x[], double local_y[], double local_z[], int elements_per_process) {
+double Parallel_vector_dot(double local_x[], double local_y[], int elements_per_process) {
     int x;
-
+    double result = 0;
     for (x = 0; x < elements_per_process; x++)
-        local_z[x] = local_x[x] + local_y[x];
+        result += local_x[x] * local_y[x];
+
+    return result;
 }  /* Parallel_vector_sum */
+
+
+void Parallel_vector_scalar(double local_x[], double local_y[], double  local_z[], double local_a[], int elements_per_process, int scalar) {
+    int x;
+    for (x = 0; x < elements_per_process; x++){
+        local_z[x] = scalar * local_y[x];
+        local_a[x] = scalar * local_x[x];
+    }
+}
