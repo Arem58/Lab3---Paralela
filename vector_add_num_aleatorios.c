@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <mpi.h>
 
 void Read_n(int* n_p);
 void Allocate_vectors(double** x_pp, double** y_pp, double** z_pp, int n);
@@ -28,31 +29,33 @@ void Vector_sum(double x[], double y[], double z[], int n);
 int main(void) {
    int n;
    double *x, *y, *z;
-   clock_t tstart, tend;
-   double elapsed_time;
+   double tstart, tend;
+
+   MPI_Init(NULL, NULL);
 
    Read_n(&n);
    Allocate_vectors(&x, &y, &z, n);
 
    srand(time(NULL));
 
-   tstart = clock();
+   tstart = MPI_Wtime();
    
    Read_vector(x, n);
    Read_vector(y, n);
    
    Vector_sum(x, y, z, n);
 
-   tend = clock();
-   elapsed_time = (double)(tend - tstart) * 1000.0 / CLOCKS_PER_SEC;
+   tend = MPI_Wtime();
 
    Print_vector(z, n, "The sum is");
 
-   printf("\nTook %f ms to run\n", elapsed_time);
+   printf("\nTook %f ms to run\n", (tend-tstart)*1000);
 
    free(x);
    free(y);
    free(z);
+
+   MPI_Finalize();
 
    return 0;
 }  /* main */
@@ -65,7 +68,7 @@ int main(void) {
  * Errors:    If n <= 0, the program terminates
  */
 void Read_n(int* n_p /* out */) {
-   *n_p = 100000;
+   *n_p = 150000;
 }  /* Read_n */
 
 /*---------------------------------------------------------------------
