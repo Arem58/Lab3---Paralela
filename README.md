@@ -1,6 +1,6 @@
 # Lab3---Paralela
 ## Cómo ejecutar los archivos de código?
-
+Para poder ejecutar el código provisto dentro de este repositorio es necesario que se tenga instalado y configurado MPI en su máquina local. 
 
 
 ## mpi_vector_operations
